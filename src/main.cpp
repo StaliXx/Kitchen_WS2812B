@@ -11,7 +11,7 @@
 
 const char* host = "esp8266-kitchen-ws2812b";
 
-#define BUTTON_PIN   13
+#define BUTTON_PIN   4
 #define PIXEL_PIN    14  
 #define PIXEL_COUNT 72
 
@@ -171,10 +171,10 @@ void loop(void){
   myBtn.read();
   if (myBtn.wasReleased())    // if the button was released, change the LED state
     {
-        colorWipe(strip.Color(0, 0, 0), 50);
+        colorWipe(strip.Color(0, 0, 0), 10);
     }
   if (myBtn.wasPressed())    // if the button was released, change the LED state
     {
-        colorWipe(strip.Color(255, 255, 100), 25);
+        colorWipe(strip.Color(255, 255, 100), 10);
     }
 }
