@@ -7,13 +7,15 @@
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <Adafruit_NeoPixel.h>
+#include <JC_Button.h>          // https://github.com/JChristensen/JC_Button
 
 const char* host = "esp8266-kitchen-ws2812b";
 
-#define BUTTON_PIN   2
-#define PIXEL_PIN    5 
-#define PIXEL_COUNT 25
+#define BUTTON_PIN   13
+#define PIXEL_PIN    14  
+#define PIXEL_COUNT 72
 
+Button myBtn(BUTTON_PIN);
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 bool oldState = HIGH;
@@ -109,9 +111,11 @@ void theaterChaseRainbow(uint8_t wait) {
 
 
 void setup() {
-    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    myBtn.begin();
     strip.begin();
-    colorWipe(strip.Color(0, 0, 0), 50);
+    rainbow(20);
+    // colorWipe(strip.Color(255, 255, 100), 25);
+    // colorWipe(strip.Color(0, 0, 0), 50);
     // rainbow(20);
     strip.show(); // Initialize all pixels to 'off'
 
@@ -164,4 +168,13 @@ void setup() {
 void loop(void){
   httpServer.handleClient();
   ArduinoOTA.handle();
+  myBtn.read();
+  if (myBtn.wasReleased())    // if the button was released, change the LED state
+    {
+        colorWipe(strip.Color(0, 0, 0), 50);
+    }
+  if (myBtn.wasPressed())    // if the button was released, change the LED state
+    {
+        colorWipe(strip.Color(255, 255, 100), 25);
+    }
 }
