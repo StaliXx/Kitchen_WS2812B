@@ -8,10 +8,13 @@
 #include <ArduinoOTA.h>
 #include <Adafruit_NeoPixel.h>
 #include <JC_Button.h>          // https://github.com/JChristensen/JC_Button
+#include <PubSubClient.h>
 
 const char* host = "esp8266-kitchen-ws2812b";
+const char* mqtt_server = "stalixx.ddns.net";
+#define mqtt_port 12081
 
-#define BUTTON_PIN   4
+#define BUTTON_PIN   13
 #define PIXEL_PIN    14  
 #define PIXEL_COUNT 72
 
@@ -20,9 +23,12 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NE
 
 bool oldState = HIGH;
 int showType = 0;
+long lastReconnectAttempt = 0;
 
 ESP8266WebServer httpServer(80);
 ESP8266HTTPUpdateServer httpUpdater;
+WiFiClient espClient;
+PubSubClient client(espClient);
 
 // Input a value 0 to 255 to get a color value.
 // The colours are a transition r - g - b - back to r.
@@ -60,66 +66,53 @@ void rainbow(uint8_t wait) {
   }
 }
 
-// Slightly different, this makes the rainbow equally distributed throughout
-void rainbowCycle(uint8_t wait) {
-  uint16_t i, j;
-
-  for(j=0; j<256*5; j++) { // 5 cycles of all colors on wheel
-    for(i=0; i< strip.numPixels(); i++) {
-      strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
-    }
-    strip.show();
-    delay(wait);
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  String value = "";
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+    value = value + ((char)payload[i]);
   }
+  long color_wire = (long) strtol( &value[0], NULL, 16);
+  Serial.println();
+  Serial.print(color_wire);
+  Serial.println();
+  colorWipe(color_wire,10);
+  // if ((char)payload[0] == '1') {
+  //   colorWipe(strip.Color(255, 255, 100), 10);
+  // } else if ((char)payload[0] == '2'){
+  //   colorWipe(0xFF0000, 10);
+  // } else if ((char)payload[0] == '3'){
+  //   colorWipe(strip.Color(255, 15, 255), 10);
+  // } else if ((char)payload[0] == '4'){
+  //   rainbow(20);
+  // } else if ((char)payload[0] == '0'){
+  //   colorWipe(strip.Color(0, 0, 0), 10);
+  // } else {
+  //   colorWipe(color_wire,10);
+  // }
 }
 
-//Theatre-style crawling lights.
-void theaterChase(uint32_t c, uint8_t wait) {
-  for (int j=0; j<10; j++) {  //do 10 cycles of chasing
-    for (int q=0; q < 3; q++) {
-      for (int i=0; i < strip.numPixels(); i=i+3) {
-        strip.setPixelColor(i+q, c);    //turn every third pixel on
-      }
-      strip.show();
-
-      delay(wait);
-
-      for (int i=0; i < strip.numPixels(); i=i+3) {
-        strip.setPixelColor(i+q, 0);        //turn every third pixel off
-      }
-    }
+boolean reconnect() {
+  if (client.connect("arduinoClient")) {    
+    client.subscribe("cmnd/kitchen_ws2812b/COLOR");
+    Serial.print("Podpisalis");
+  Serial.println();
   }
+  return client.connected();
 }
-
-//Theatre-style crawling lights with rainbow effect
-void theaterChaseRainbow(uint8_t wait) {
-  for (int j=0; j < 256; j++) {     // cycle all 256 colors in the wheel
-    for (int q=0; q < 3; q++) {
-      for (int i=0; i < strip.numPixels(); i=i+3) {
-        strip.setPixelColor(i+q, Wheel( (i+j) % 255));    //turn every third pixel on
-      }
-      strip.show();
-
-      delay(wait);
-
-      for (int i=0; i < strip.numPixels(); i=i+3) {
-        strip.setPixelColor(i+q, 0);        //turn every third pixel off
-      }
-    }
-  }
-}
-
 
 void setup() {
+    Serial.begin(115200);
+
     myBtn.begin();
     strip.begin();
+    // colorWipe(strip.Color(255, 255, 100), 10);
     rainbow(20);
-    // colorWipe(strip.Color(255, 255, 100), 25);
-    // colorWipe(strip.Color(0, 0, 0), 50);
-    // rainbow(20);
     strip.show(); // Initialize all pixels to 'off'
-
-    Serial.begin(115200);
+    
     WiFiManager wifiManager;
     wifiManager.autoConnect(host,"9268168144");
     //if you get here you have connected to the WiFi
@@ -163,6 +156,13 @@ void setup() {
     ArduinoOTA.begin();
     Serial.print("Arduino OTA started. IP address: ");
     Serial.println(WiFi.localIP());
+
+    client.setServer(mqtt_server, mqtt_port);
+    client.setCallback(callback);
+    lastReconnectAttempt = 0;
+    Serial.print("MQTT ");
+    Serial.print(mqtt_server);
+    Serial.println(mqtt_port);
 }
 
 void loop(void){
@@ -177,4 +177,16 @@ void loop(void){
     {
         colorWipe(strip.Color(255, 255, 100), 10);
     }
+  if (!client.connected()) {
+    long now = millis();
+    if (now - lastReconnectAttempt > 5000) {
+      lastReconnectAttempt = now;
+      // Attempt to reconnect
+      if (reconnect()) {
+        lastReconnectAttempt = 0;
+      }
+    }
+  } else {
+    client.loop();
+  }
 }
