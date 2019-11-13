@@ -10,15 +10,36 @@
 #include <JC_Button.h>          // https://github.com/JChristensen/JC_Button
 #include <PubSubClient.h>
 
+// #define BEDROOM
+#define KITCHEN
+
+#ifdef BEDROOM
+const char* host = "esp8266-bedroom-ws2812b";
+#define COLOR_TOPIC "cmnd/bedroom_ws2812b/COLOR"
+#define STATUS_TOPIC "cmnd/bedroom_ws2812b/STATUS"
+#define STAT_COLOR_TOPIC "stat/bedroom_ws2812b/COLOR"
+#define STAT_STATUS_TOPIC "stat/bedroom_ws2812b/STATUS"
+#define PIXEL_COUNT 300
+#endif
+
+#ifdef KITCHEN
 const char* host = "esp8266-kitchen-ws2812b";
-const char* mqtt_server = "stalixx.ddns.net";
-#define mqtt_port 12081
-
-#define BUTTON_PIN   13
-#define PIXEL_PIN    14  
+#define COLOR_TOPIC "cmnd/kitchen_ws2812b/COLOR"
+#define STATUS_TOPIC "cmnd/kitchen_ws2812b/STATUS"
+#define STAT_COLOR_TOPIC "stat/kitchen_ws2812b/COLOR"
+#define STAT_STATUS_TOPIC "stat/kitchen_ws2812b/STATUS"
 #define PIXEL_COUNT 72
+#endif
 
-Button myBtn(BUTTON_PIN);
+// const char* mqtt_server = "stalixx.ddns.net";
+// #define mqtt_port 12081
+const char* mqtt_server = "192.168.43.2";
+#define mqtt_port 1883
+
+#define BUTTON_PIN   13  // D7
+#define PIXEL_PIN    14  // D5
+
+Button myBtn(BUTTON_PIN,300, true, false);
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 bool oldState = HIGH;
@@ -29,6 +50,9 @@ ESP8266WebServer httpServer(80);
 ESP8266HTTPUpdateServer httpUpdater;
 WiFiClient espClient;
 PubSubClient client(espClient);
+
+int status_value = 0;
+long color_value = 0xffff64;
 
 // Input a value 0 to 255 to get a color value.
 // The colours are a transition r - g - b - back to r.
@@ -66,20 +90,46 @@ void rainbow(uint8_t wait) {
   }
 }
 
+void togglePower (int status_new){
+  if (status_new != status_value){
+    status_value = status_new;
+    if (status_new){
+      client.publish(STAT_STATUS_TOPIC,"1");
+      client.publish(STAT_COLOR_TOPIC, (char*) String(color_value).c_str());
+      Serial.println ("Status = 1");
+      Serial.print ("Color = ");
+      Serial.println (String(color_value, HEX));
+      colorWipe(color_value, 10);
+    } else {
+      client.publish(STAT_STATUS_TOPIC,"0");
+      Serial.println ("Status = 0");
+      colorWipe(0x000000, 10);
+    }
+  }
+}
+
 void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
+  Serial.print("Message arrived [" + String(topic) + "] ");
   String value = "";
   for (int i = 0; i < length; i++) {
     Serial.print((char)payload[i]);
     value = value + ((char)payload[i]);
   }
-  long color_wire = (long) strtol( &value[0], NULL, 16);
   Serial.println();
-  Serial.print(color_wire);
-  Serial.println();
-  colorWipe(color_wire,10);
+  if (String(topic) == COLOR_TOPIC){
+    long color_wire = (long) strtol( &value[0], NULL, 16);
+    if (color_wire){
+      color_value = color_wire;
+    }
+    Serial.println(color_wire);
+    colorWipe(color_wire,10);
+  }
+  if (String(topic) == STATUS_TOPIC){
+    Serial.print("Status_topic = ");
+    Serial.print(value);
+    Serial.println();
+    togglePower(value.toInt());
+  }
   // if ((char)payload[0] == '1') {
   //   colorWipe(strip.Color(255, 255, 100), 10);
   // } else if ((char)payload[0] == '2'){
@@ -96,8 +146,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
 }
 
 boolean reconnect() {
-  if (client.connect("arduinoClient")) {    
-    client.subscribe("cmnd/kitchen_ws2812b/COLOR");
+  if (client.connect(host)) {    
+    client.subscribe(COLOR_TOPIC);
+    client.subscribe(STATUS_TOPIC);
     Serial.print("Podpisalis");
   Serial.println();
   }
@@ -160,23 +211,32 @@ void setup() {
     client.setServer(mqtt_server, mqtt_port);
     client.setCallback(callback);
     lastReconnectAttempt = 0;
-    Serial.print("MQTT ");
+    Serial.print ("MQTT: ");
     Serial.print(mqtt_server);
+    Serial.print (":");
     Serial.println(mqtt_port);
 }
 
 void loop(void){
   httpServer.handleClient();
   ArduinoOTA.handle();
+
+  #ifndef BEDROOM
   myBtn.read();
   if (myBtn.wasReleased())    // if the button was released, change the LED state
     {
         colorWipe(strip.Color(0, 0, 0), 10);
+        client.publish("stat/kitchen_ws2812b/COLOR","000000");
+        client.publish("stat/kitchen_ws2812b/STATUS","0");
     }
   if (myBtn.wasPressed())    // if the button was released, change the LED state
     {
         colorWipe(strip.Color(255, 255, 100), 10);
+        client.publish("stat/kitchen_ws2812b/COLOR","ffff64");
+        client.publish("stat/kitchen_ws2812b/STATUS","1");
     }
+  #endif
+
   if (!client.connected()) {
     long now = millis();
     if (now - lastReconnectAttempt > 5000) {
